@@ -83,5 +83,23 @@ publish to GitHub Pages via `.github/workflows/deploy.yml`.
 **One-time setup:** repository *Settings → Pages → Build and deployment →
 Source: **GitHub Actions***.
 
-The Vite `base` is `/mfrn-banner-tool/`; override it with the `BASE_PATH`
-environment variable if the repository is ever renamed.
+The Vite `base` is `./` — relative, so the same build works at a project-pages
+subpath (`https://shagen.me/mfrn-banner-tool/`), at a domain root, and under
+`vite preview`. Override with the `BASE_PATH` environment variable if an
+absolute base is ever needed.
+
+Note this repository must **not** contain a `CNAME` file: the custom domain
+belongs to the user-pages repository, and this project is served underneath it
+at `/mfrn-banner-tool/`.
+
+### If the page loads but the browser reports a MIME-type error
+
+```
+Loading module from ".../src/index.tsx" was blocked
+because of a disallowed MIME type ("text/html").
+```
+
+That path only exists in the *source* `index.html`; the build rewrites it to a
+hashed `assets/*.js`. Seeing it means Pages is serving the repository root
+rather than the `dist/` artifact — i.e. Source is set to *Deploy from a branch*
+instead of *GitHub Actions*.
