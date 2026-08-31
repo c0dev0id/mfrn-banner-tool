@@ -129,9 +129,22 @@ export function subtitleFont(size: number): string {
   return `${SUBTITLE_ITALIC ? 'italic ' : ''}${SUBTITLE_WEIGHT} ${size}px ${SUBTITLE_FONT}`;
 }
 
-function ascentOf(ctx: CanvasRenderingContext2D, text: string, fallbackSize: number): number {
-  const m = ctx.measureText(text || 'H');
-  return m.actualBoundingBoxAscent || fallbackSize * 0.73;
+/** One laid-out line, ready to paint. */
+export interface PositionedLine {
+  text: string;
+  x: number;
+  baseline: number;
+  font: string;
+  color: string;
+}
+
+/**
+ * Text measurement, abstracted so layout can be computed and tested without a
+ * canvas. The canvas implementation is `canvasMetrics` below.
+ */
+export interface TextMeasurer {
+  width(text: string, font: string): number;
+  ascent(text: string, font: string, size: number): number;
 }
 
 function blockTopFor(anchor: TextAnchor, height: number, blockHeight: number, marginY: number) {
@@ -141,8 +154,88 @@ function blockTopFor(anchor: TextAnchor, height: number, blockHeight: number, ma
 }
 
 /**
- * Draws the house title/subtitle block. Left-aligned, weights and colours fixed
- * by config/style.ts — deliberately not user-tunable.
+ * Pure placement: wraps, ellipsises and positions the title/subtitle block.
+ *
+ * Kept separate from painting so a new anchor or a third text element is a
+ * change in one testable function rather than in a baseline accumulator that
+ * has to stay in step with a block-height sum.
+ */
+export function layoutText(
+  width: number,
+  height: number,
+  spec: TextSpec,
+  measurer: TextMeasurer,
+): PositionedLine[] {
+  const title = spec.title.trim();
+  const subtitle = spec.subtitle.trim();
+  if (!title && !subtitle) return [];
+
+  const m = computeMetrics(width, height, spec.scale);
+  const tFont = titleFont(m.titleSize);
+  const sFont = subtitleFont(m.subtitleSize);
+
+  const titleLines = title
+    ? wrapLines(title, m.maxTextWidth, (t) => measurer.width(t, tFont), METRICS.maxTitleLines)
+    : [];
+  const subtitleLine = subtitle
+    ? ellipsise(subtitle, m.maxTextWidth, (t) => measurer.width(t, sFont))
+    : '';
+
+  const titleAscent = titleLines.length
+    ? measurer.ascent(titleLines[0]!, tFont, m.titleSize)
+    : 0;
+  const subtitleAscent = subtitleLine ? measurer.ascent(subtitleLine, sFont, m.subtitleSize) : 0;
+
+  // Three independent parts, so the block height and each baseline derive from
+  // the same numbers instead of one being reverse-engineered from the other.
+  const titleBlock = titleLines.length
+    ? titleAscent + (titleLines.length - 1) * m.titleAdvance
+    : 0;
+  const gap = titleLines.length && subtitleLine ? m.lineGap : 0;
+  const descent = (subtitleLine ? m.subtitleSize : m.titleSize) * METRICS.descentRatio;
+  const blockHeight = titleBlock + gap + subtitleAscent + descent;
+
+  const top = blockTopFor(TEXT_ANCHOR, height, blockHeight, m.marginY);
+
+  const lines: PositionedLine[] = titleLines.map((text, i) => ({
+    text,
+    x: m.marginX,
+    baseline: top + titleAscent + i * m.titleAdvance,
+    font: tFont,
+    color: TITLE_COLOR,
+  }));
+
+  if (subtitleLine) {
+    lines.push({
+      text: subtitleLine,
+      x: m.marginX,
+      baseline: top + titleBlock + gap + subtitleAscent,
+      font: sFont,
+      color: SUBTITLE_COLOR,
+    });
+  }
+
+  return lines;
+}
+
+/** Measures against a real 2D context. Mutates ctx.font; call inside save(). */
+export function canvasMetrics(ctx: CanvasRenderingContext2D): TextMeasurer {
+  return {
+    width(text, font) {
+      ctx.font = font;
+      return ctx.measureText(text).width;
+    },
+    ascent(text, font, size) {
+      ctx.font = font;
+      const m = ctx.measureText(text || 'H');
+      return m.actualBoundingBoxAscent || size * METRICS.ascentRatio;
+    },
+  };
+}
+
+/**
+ * Paints the house title/subtitle block. Left-aligned, weights and colours
+ * fixed by config/style.ts — deliberately not user-tunable.
  */
 export function drawText(
   ctx: CanvasRenderingContext2D,
@@ -150,61 +243,20 @@ export function drawText(
   height: number,
   spec: TextSpec,
 ): void {
-  const title = spec.title.trim();
-  const subtitle = spec.subtitle.trim();
-  if (!title && !subtitle) return;
-
-  const m = computeMetrics(width, height, spec.scale);
-
   ctx.save();
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-
-  ctx.font = titleFont(m.titleSize);
-  const titleLines = wrapLines(
-    title,
-    m.maxTextWidth,
-    (t) => ctx.measureText(t).width,
-    METRICS.maxTitleLines,
-  );
-  const titleAscent = titleLines.length ? ascentOf(ctx, titleLines[0]!, m.titleSize) : 0;
-
-  ctx.font = subtitleFont(m.subtitleSize);
-  const subtitleLine = subtitle
-    ? ellipsise(subtitle, m.maxTextWidth, (t) => ctx.measureText(t).width)
-    : '';
-  const subtitleAscent = subtitleLine ? ascentOf(ctx, subtitleLine, m.subtitleSize) : 0;
-
-  // Block height, so middle/bottom anchors have something to measure against.
-  let blockHeight = 0;
-  if (titleLines.length) blockHeight += titleAscent + (titleLines.length - 1) * m.titleAdvance;
-  if (subtitleLine) {
-    blockHeight += (titleLines.length ? m.lineGap : 0) + subtitleAscent + m.subtitleSize * 0.22;
-  } else if (titleLines.length) {
-    blockHeight += m.titleSize * 0.22;
+  const lines = layoutText(width, height, spec, canvasMetrics(ctx));
+  if (lines.length) {
+    const m = computeMetrics(width, height, spec.scale);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = METRICS.shadowColor;
+    ctx.shadowBlur = m.shadowBlur;
+    ctx.shadowOffsetY = m.shadowOffset;
+    for (const line of lines) {
+      ctx.font = line.font;
+      ctx.fillStyle = line.color;
+      ctx.fillText(line.text, line.x, line.baseline);
+    }
   }
-
-  let baseline = blockTopFor(TEXT_ANCHOR, height, blockHeight, m.marginY) + titleAscent;
-
-  ctx.shadowColor = METRICS.shadowColor;
-  ctx.shadowBlur = m.shadowBlur;
-  ctx.shadowOffsetY = m.shadowOffset;
-
-  ctx.font = titleFont(m.titleSize);
-  ctx.fillStyle = TITLE_COLOR;
-  for (const line of titleLines) {
-    ctx.fillText(line, m.marginX, baseline);
-    baseline += m.titleAdvance;
-  }
-
-  if (subtitleLine) {
-    // Undo the trailing advance from the title loop, then apply the real gap.
-    if (titleLines.length) baseline += m.lineGap - m.titleAdvance + subtitleAscent;
-    else baseline = blockTopFor(TEXT_ANCHOR, height, blockHeight, m.marginY) + subtitleAscent;
-    ctx.font = subtitleFont(m.subtitleSize);
-    ctx.fillStyle = SUBTITLE_COLOR;
-    ctx.fillText(subtitleLine, m.marginX, baseline);
-  }
-
   ctx.restore();
 }

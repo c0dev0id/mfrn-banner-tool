@@ -27,13 +27,17 @@ async function isHeic(file: File): Promise<boolean> {
 }
 
 export async function decodeImageFile(file: File): Promise<SourceImage> {
-  if (!EXT_RE.test(file.name) && !file.type.startsWith('image/') && !(await isHeic(file))) {
+  // Sniffed once: each call re-reads the file header, and the two call sites
+  // must agree.
+  const heic = await isHeic(file);
+
+  if (!EXT_RE.test(file.name) && !file.type.startsWith('image/') && !heic) {
     throw new DecodeError('That file does not look like an image. Use JPG, PNG, WebP or HEIC.');
   }
 
   let blob: Blob = file;
 
-  if (await isHeic(file)) {
+  if (heic) {
     try {
       // Lazy: the libheif WASM is ~1.5 MB and most uploads never need it.
       const { heicTo } = await import('heic-to');

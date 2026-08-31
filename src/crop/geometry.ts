@@ -33,13 +33,14 @@ export interface Point {
   y: number;
 }
 
+import { clamp } from '../util/math';
+
 export const MIN_SCALE = 0.02;
 export const MAX_SCALE = 32;
 /** Smallest crop the user can drag, in image px. */
 export const MIN_CROP = 8;
 
-export const clamp = (v: number, lo: number, hi: number): number =>
-  v < lo ? lo : v > hi ? hi : v;
+export { clamp } from '../util/math';
 
 export function imageToView(p: Point, view: View): Point {
   return { x: p.x * view.scale + view.tx, y: p.y * view.scale + view.ty };
@@ -50,12 +51,8 @@ export function viewToImage(p: Point, view: View): Point {
 }
 
 export function rectToView(r: Rect, view: View): Rect {
-  return {
-    x: r.x * view.scale + view.tx,
-    y: r.y * view.scale + view.ty,
-    w: r.w * view.scale,
-    h: r.h * view.scale,
-  };
+  const { x, y } = imageToView(r, view);
+  return { x, y, w: r.w * view.scale, h: r.h * view.scale };
 }
 
 /** Scale + centre so the whole image sits inside the viewport with padding. */
@@ -84,6 +81,11 @@ export function zoomAt(view: View, factor: number, anchor: Point): View {
   };
 }
 
+/** Zoom to an absolute scale (e.g. the 100% button) about `anchor`. */
+export function zoomTo(view: View, targetScale: number, anchor: Point): View {
+  return zoomAt(view, targetScale / view.scale, anchor);
+}
+
 export function panView(view: View, dx: number, dy: number): View {
   return { scale: view.scale, tx: view.tx + dx, ty: view.ty + dy };
 }
@@ -109,12 +111,8 @@ export function resolveAspect(aspect: null | 'source' | number, image: Size): nu
 
 /** Largest rect of `aspect` centred inside `bounds`. */
 export function fitAspectInside(bounds: Rect, aspect: number): Rect {
-  let w = bounds.w;
-  let h = w / aspect;
-  if (h > bounds.h) {
-    h = bounds.h;
-    w = h * aspect;
-  }
+  const w = Math.min(bounds.w, bounds.h * aspect);
+  const h = w / aspect;
   return { x: bounds.x + (bounds.w - w) / 2, y: bounds.y + (bounds.h - h) / 2, w, h };
 }
 
@@ -128,27 +126,14 @@ export function retargetAspect(current: Rect, aspect: number | null, image: Size
   const cx = current.x + current.w / 2;
   const cy = current.y + current.h / 2;
 
-  // Start from the current rect's area so the crop keeps its rough framing,
-  // then clamp against the image so we never exceed the available pixels.
-  let w = Math.max(current.w, current.h * aspect);
-  let h = w / aspect;
-  if (w > image.width) {
-    w = image.width;
-    h = w / aspect;
-  }
-  if (h > image.height) {
-    h = image.height;
-    w = h * aspect;
-  }
+  // Keep the crop's rough framing, but never exceed the pixels available on
+  // either axis.
+  const w = Math.min(Math.max(current.w, current.h * aspect), image.width, image.height * aspect);
+  const h = w / aspect;
   return clampRectToImage({ x: cx - w / 2, y: cy - h / 2, w, h }, image);
 }
 
 export type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
-
-const PULLS_LEFT: Handle[] = ['nw', 'w', 'sw'];
-const PULLS_RIGHT: Handle[] = ['ne', 'e', 'se'];
-const PULLS_TOP: Handle[] = ['nw', 'n', 'ne'];
-const PULLS_BOTTOM: Handle[] = ['sw', 's', 'se'];
 
 /**
  * Drag `handle` to image-space point `p`.
@@ -165,36 +150,41 @@ export function resizeRect(
   aspect: number | null,
   image: Size,
 ): Rect {
+  // The compass letters are disjoint, so the handle name is the edge set.
+  const left = handle.includes('w');
+  const right = handle.includes('e');
+  const top = handle.includes('n');
+  const bottom = handle.includes('s');
+
   const px = clamp(p.x, 0, image.width);
   const py = clamp(p.y, 0, image.height);
 
   let { x, y, w, h } = rect;
-  const right = x + w;
-  const bottom = y + h;
+  const anchorRight = x + w;
+  const anchorBottom = y + h;
 
-  if (PULLS_LEFT.includes(handle)) {
-    x = Math.min(px, right - MIN_CROP);
-    w = right - x;
-  } else if (PULLS_RIGHT.includes(handle)) {
+  if (left) {
+    x = Math.min(px, anchorRight - MIN_CROP);
+    w = anchorRight - x;
+  } else if (right) {
     w = Math.max(MIN_CROP, px - x);
   }
 
-  if (PULLS_TOP.includes(handle)) {
-    y = Math.min(py, bottom - MIN_CROP);
-    h = bottom - y;
-  } else if (PULLS_BOTTOM.includes(handle)) {
+  if (top) {
+    y = Math.min(py, anchorBottom - MIN_CROP);
+    h = anchorBottom - y;
+  } else if (bottom) {
     h = Math.max(MIN_CROP, py - y);
   }
 
   if (aspect !== null) {
-    const horizontal = handle === 'e' || handle === 'w';
-    const vertical = handle === 'n' || handle === 's';
-
-    if (horizontal) {
+    if (!top && !bottom) {
+      // East/west edge: grow vertically about the rect's centre.
       const cy = rect.y + rect.h / 2;
       h = w / aspect;
       y = cy - h / 2;
-    } else if (vertical) {
+    } else if (!left && !right) {
+      // North/south edge: grow horizontally about the rect's centre.
       const cx = rect.x + rect.w / 2;
       w = h * aspect;
       x = cx - w / 2;
@@ -203,23 +193,18 @@ export function resizeRect(
       // the pointer rather than lagging on one axis.
       if (w / aspect >= h) h = w / aspect;
       else w = h * aspect;
-      if (PULLS_LEFT.includes(handle)) x = right - w;
-      if (PULLS_TOP.includes(handle)) y = bottom - h;
+      if (left) x = anchorRight - w;
+      if (top) y = anchorBottom - h;
     }
 
-    // Shrink to fit rather than letting the lock push us off-image.
-    const overflowScale = Math.min(
-      1,
-      image.width / Math.max(w, 1e-6),
-      image.height / Math.max(h, 1e-6),
-    );
-    if (overflowScale < 1) {
-      const ax = PULLS_LEFT.includes(handle) ? x + w : x;
-      const ay = PULLS_TOP.includes(handle) ? y + h : y;
-      w *= overflowScale;
-      h *= overflowScale;
-      if (PULLS_LEFT.includes(handle)) x = ax - w;
-      if (PULLS_TOP.includes(handle)) y = ay - h;
+    // Shrink to fit rather than letting the lock push us off-image, holding
+    // whichever corner the drag anchored on.
+    const fit = Math.min(1, image.width / Math.max(w, 1e-6), image.height / Math.max(h, 1e-6));
+    if (fit < 1) {
+      if (left) x += w - w * fit;
+      if (top) y += h - h * fit;
+      w *= fit;
+      h *= fit;
     }
   }
 
@@ -246,6 +231,23 @@ export function outputSizeFor(
     return { width: Math.round(manual.width), height: Math.round(manual.height) };
   }
   return { width: Math.max(1, Math.round(crop.w)), height: Math.max(1, Math.round(crop.h)) };
+}
+
+/**
+ * Aspect-locked manual output size: the user types one axis, the other follows
+ * the crop's ratio. Returns null for a cleared or nonsensical input, meaning
+ * "fall back to the crop's native pixels".
+ */
+export function sizeFromAxis(
+  axis: 'width' | 'height',
+  value: number,
+  crop: Rect,
+): Size | null {
+  if (!Number.isFinite(value) || value <= 0) return null;
+  const ratio = crop.w / Math.max(crop.h, 1e-6);
+  return axis === 'width'
+    ? { width: Math.round(value), height: Math.max(1, Math.round(value / ratio)) }
+    : { width: Math.max(1, Math.round(value * ratio)), height: Math.round(value) };
 }
 
 /** >1 means the export stretches the selection; <=1 means it downsamples. */

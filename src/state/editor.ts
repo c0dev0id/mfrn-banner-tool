@@ -1,16 +1,19 @@
 import { createStore } from 'solid-js/store';
-import { DEFAULT_MODE_ID, hasFreeOutputSize, modeById } from '../config/presets';
+import { DEFAULT_MODE_ID, aspectOf, modeById, presetSizeOf } from '../config/presets';
 import type { TextScaleId } from '../config/style';
 import {
   fitAspectInside,
   outputSizeFor,
   resolveAspect,
   retargetAspect,
+  sizeFromAxis,
   type Rect,
   type Size,
 } from '../crop/geometry';
+import { releaseAverageColor } from '../image/averageColor';
 import { DecodeError, decodeImageFile, type SourceImage } from '../image/decode';
 import { DEFAULT_OVERLAY_ID } from '../overlays';
+import { releaseBaseLayer } from '../render/compose';
 
 export type Stage = 'upload' | 'crop' | 'edit';
 
@@ -54,14 +57,11 @@ export function currentMode() {
 export function currentAspect(): number | null {
   const src = state.source;
   if (!src) return null;
-  return resolveAspect(currentMode().aspect, src);
+  return resolveAspect(aspectOf(currentMode()), src);
 }
 
 export function presetSize(): Size | undefined {
-  const m = currentMode();
-  return m.width !== undefined && m.height !== undefined
-    ? { width: m.width, height: m.height }
-    : undefined;
+  return presetSizeOf(currentMode());
 }
 
 export function outputSize(): Size {
@@ -69,7 +69,7 @@ export function outputSize(): Size {
 }
 
 export function canEditOutputSize(): boolean {
-  return hasFreeOutputSize(currentMode());
+  return presetSize() === undefined;
 }
 
 /** Largest rect of the mode's aspect, centred on the whole image. */
@@ -83,7 +83,9 @@ export async function loadFile(file: File): Promise<void> {
   try {
     const source = await decodeImageFile(file);
     state.source?.bitmap.close();
-    const aspect = resolveAspect(modeById(state.modeId).aspect, source);
+    releaseBaseLayer();
+    releaseAverageColor();
+    const aspect = resolveAspect(aspectOf(modeById(state.modeId)), source);
     setState({
       source,
       crop: initialCrop(source, aspect),
@@ -103,26 +105,16 @@ export function setMode(modeId: string): void {
   setState('modeId', modeId);
   setState('manualSize', null);
   if (!src) return;
-  const aspect = resolveAspect(modeById(modeId).aspect, src);
-  setState('crop', retargetAspect(state.crop, aspect, src));
+  // The store already holds the new mode, so currentAspect() is the new lock.
+  setState('crop', retargetAspect(state.crop, currentAspect(), src));
 }
 
 export function setCrop(crop: Rect): void {
   setState('crop', crop);
 }
 
-/** Aspect-locked: editing one axis derives the other from the crop ratio. */
 export function setManualSize(axis: 'width' | 'height', value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    setState('manualSize', null);
-    return;
-  }
-  const ratio = state.crop.w / Math.max(state.crop.h, 1e-6);
-  const size: Size =
-    axis === 'width'
-      ? { width: Math.round(value), height: Math.max(1, Math.round(value / ratio)) }
-      : { width: Math.max(1, Math.round(value * ratio)), height: Math.round(value) };
-  setState('manualSize', size);
+  setState('manualSize', sizeFromAxis(axis, value, state.crop));
 }
 
 export function resetManualSize(): void {
@@ -138,6 +130,8 @@ export const clearError = () => setState('error', null);
 
 export function reset(): void {
   state.source?.bitmap.close();
+  releaseBaseLayer();
+  releaseAverageColor();
   setState({
     stage: 'upload',
     source: null,

@@ -4,6 +4,8 @@ import { CROP_MODES } from './config/presets';
 import { TEXT_SCALES, type TextScaleId } from './config/style';
 import { needsUpscale, upscaleFactor } from './crop/geometry';
 import { downloadCanvasAsPng } from './export/png';
+import { renderToCanvas } from './render/compose';
+import { composeInput } from './render/spec';
 import { OVERLAYS, overlayById } from './overlays';
 import Dropzone from './ui/Dropzone';
 import Preview from './ui/Preview';
@@ -27,7 +29,6 @@ import {
 } from './state/editor';
 
 export default function App() {
-  let previewCanvas: HTMLCanvasElement | undefined;
   const [exporting, setExporting] = createSignal(false);
 
   const out = createMemo(() => outputSize());
@@ -35,10 +36,19 @@ export default function App() {
   const warn = createMemo(() => needsUpscale(state.crop, out()));
 
   async function download() {
-    if (!previewCanvas || !state.source) return;
+    const input = composeInput();
+    const source = state.source;
+    if (!input || !source) return;
     setExporting(true);
     try {
-      await downloadCanvasAsPng(previewCanvas, state.source.name);
+      // Render through the same path the preview uses, into a throwaway canvas
+      // rather than reaching into the preview component's DOM node. The cached
+      // base layer makes these pixel-identical.
+      const canvas = document.createElement('canvas');
+      renderToCanvas(canvas, input);
+      await downloadCanvasAsPng(canvas, source.name);
+      canvas.width = 0;
+      canvas.height = 0;
     } finally {
       setExporting(false);
     }
@@ -161,7 +171,7 @@ export default function App() {
       <Show when={state.stage === 'edit' && state.source}>
         <section class="stage-grid">
           <div class="preview-wrap">
-            <Preview onCanvas={(c) => (previewCanvas = c)} />
+            <Preview />
             <p class="note">
               Preview at {out().width} × {out().height} px — the download is these exact pixels.
             </p>

@@ -42,16 +42,58 @@ export function rgbaString({ r, g, b }: RGB, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/**
+ * Scratch canvas for sampling, allocated once. A fresh <canvas> plus 2D context
+ * per call is a real backing-store allocation, and this runs on every crop
+ * change.
+ */
+let scratch: HTMLCanvasElement | null = null;
+let scratchCtx: CanvasRenderingContext2D | null = null;
+
+function sampler(): CanvasRenderingContext2D | null {
+  if (!scratch) {
+    scratch = document.createElement('canvas');
+    scratch.width = SAMPLE;
+    scratch.height = SAMPLE;
+    scratchCtx = scratch.getContext('2d', { willReadFrequently: true });
+  }
+  return scratchCtx;
+}
+
+export interface CropRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Average colour of a crop region of the source bitmap. */
-export function averageColorOfCrop(
-  bitmap: ImageBitmap,
-  crop: { x: number; y: number; w: number; h: number },
-): RGB {
-  const canvas = document.createElement('canvas');
-  canvas.width = SAMPLE;
-  canvas.height = SAMPLE;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+export function averageColorOfCrop(bitmap: ImageBitmap, crop: CropRect): RGB {
+  const ctx = sampler();
   if (!ctx) return { r: 0, g: 0, b: 0 };
   ctx.drawImage(bitmap, crop.x, crop.y, crop.w, crop.h, 0, 0, SAMPLE, SAMPLE);
   return averageRGBA(ctx.getImageData(0, 0, SAMPLE, SAMPLE).data);
+}
+
+/**
+ * Cached form, keyed on the crop rect and bitmap. The average only changes when
+ * the crop does, so overlay toggles and every keystroke reuse it.
+ */
+let cachedKey = '';
+let cachedBitmap: ImageBitmap | null = null;
+let cachedColor: RGB = { r: 0, g: 0, b: 0 };
+
+export function cropAverageColor(bitmap: ImageBitmap, crop: CropRect): RGB {
+  const key = `${crop.x},${crop.y},${crop.w},${crop.h}`;
+  if (key === cachedKey && bitmap === cachedBitmap) return cachedColor;
+  cachedColor = averageColorOfCrop(bitmap, crop);
+  cachedKey = key;
+  cachedBitmap = bitmap;
+  return cachedColor;
+}
+
+/** Drop the cached colour so a closed ImageBitmap is not retained. */
+export function releaseAverageColor(): void {
+  cachedKey = '';
+  cachedBitmap = null;
 }

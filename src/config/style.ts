@@ -39,6 +39,10 @@ export const METRICS = {
   /** Leading between wrapped title lines, as a fraction of title size. */
   titleLeading: 1.05,
   maxTitleLines: 2,
+  /** Approximate descender depth, as a fraction of the font size. */
+  descentRatio: 0.22,
+  /** Fallback ascent when the platform reports no glyph metrics. */
+  ascentRatio: 0.73,
   /** Drop shadow so text still reads with overlay "none" over a bright photo. */
   shadowBlur: 0.035,
   shadowOffset: 0.008,

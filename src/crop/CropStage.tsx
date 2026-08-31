@@ -1,9 +1,6 @@
 import { For, createEffect, createSignal, onCleanup, onMount } from 'solid-js';
 import type { SourceImage } from '../image/decode';
 import {
-  MAX_SCALE,
-  MIN_SCALE,
-  clamp,
   fitView,
   moveRect,
   panView,
@@ -11,6 +8,7 @@ import {
   resizeRect,
   viewToImage,
   zoomAt,
+  zoomTo,
   type Handle,
   type Point,
   type Rect,
@@ -87,7 +85,25 @@ export default function CropStage(props: Props) {
     fitToViewport();
   });
 
-  createEffect(() => draw(view(), props.crop, viewport(), props.source));
+  // Pointer/wheel events arrive faster than the screen refreshes (120-240 Hz
+  // devices, and wheel bursts), so redrawing per event does 2-4x more full
+  // resamples than can ever be shown. Coalesce to one per frame.
+  let frame = 0;
+  createEffect(() => {
+    const v = view();
+    const crop = { ...props.crop };
+    const vp = viewport();
+    const src = props.source;
+    if (frame) cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      draw(v, crop, vp, src);
+    });
+  });
+
+  onCleanup(() => {
+    if (frame) cancelAnimationFrame(frame);
+  });
 
   function draw(v: View, crop: Rect, vp: Size, src: SourceImage) {
     if (!vp.width || !vp.height) return;
@@ -223,10 +239,13 @@ export default function CropStage(props: Props) {
     props.onCrop(moveRect(props.crop, delta[0], delta[1], props.source));
   }
 
-  const zoomBy = (factor: number) => {
+  const viewportCentre = () => {
     const vp = viewport();
-    setView((v) => zoomAt(v, factor, { x: vp.width / 2, y: vp.height / 2 }));
+    return { x: vp.width / 2, y: vp.height / 2 };
   };
+
+  const zoomBy = (factor: number) => setView((v) => zoomAt(v, factor, viewportCentre()));
+  const zoomAbsolute = (scale: number) => setView((v) => zoomTo(v, scale, viewportCentre()));
 
   const zoomPercent = () => Math.round(view().scale * 100);
 
@@ -263,18 +282,7 @@ export default function CropStage(props: Props) {
         <button type="button" onClick={fitToViewport}>
           Fit
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            const vp = viewport();
-            setView((v) =>
-              zoomAt(v, clamp(1 / v.scale, MIN_SCALE, MAX_SCALE), {
-                x: vp.width / 2,
-                y: vp.height / 2,
-              }),
-            );
-          }}
-        >
+        <button type="button" onClick={() => zoomAbsolute(1)}>
           100%
         </button>
         <span class="cropper-hint">Scroll to zoom · drag outside the frame to pan</span>

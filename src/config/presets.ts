@@ -1,3 +1,5 @@
+import type { Size } from '../crop/geometry';
+
 export interface CropMode {
   /** Stable id used in state and the <select>. */
   id: string;
@@ -6,11 +8,13 @@ export interface CropMode {
   width?: number;
   height?: number;
   /**
-   * null  -> freeform, the crop rect resizes on both axes independently
-   * 'source' -> lock to the aspect ratio of the uploaded image
-   * number -> lock to this w/h ratio
+   * Omit on a fixed preset — the ratio is derived from width/height, so the
+   * numbers are never written twice and cannot drift apart.
+   *   null     -> freeform, both axes resize independently
+   *   'source' -> lock to the uploaded image's own ratio
+   *   number   -> lock to this w/h ratio
    */
-  aspect: null | 'source' | number;
+  aspect?: null | 'source' | number;
 }
 
 /**
@@ -20,9 +24,9 @@ export interface CropMode {
 export const CROP_MODES: CropMode[] = [
   { id: 'original', label: 'Original — keep aspect ratio', aspect: 'source' },
   { id: 'free', label: 'Freeform — drag any edge', aspect: null },
-  { id: 'avatar', label: '256 × 256 — Profile Picture', width: 256, height: 256, aspect: 1 },
-  { id: 'banner', label: '1400 × 250 — Profile Banner', width: 1400, height: 250, aspect: 1400 / 250 },
-  { id: 'article', label: '1200 × 686 — Article Banner', width: 1200, height: 686, aspect: 1200 / 686 },
+  { id: 'avatar', label: '256 × 256 — Profile Picture', width: 256, height: 256 },
+  { id: 'banner', label: '1400 × 250 — Profile Banner', width: 1400, height: 250 },
+  { id: 'article', label: '1200 × 686 — Article Banner', width: 1200, height: 686 },
 ];
 
 export const DEFAULT_MODE_ID = 'banner';
@@ -31,7 +35,19 @@ export function modeById(id: string): CropMode {
   return CROP_MODES.find((m) => m.id === id) ?? CROP_MODES[0]!;
 }
 
-/** True for the two modes whose output size the user may type in. */
-export function hasFreeOutputSize(mode: CropMode): boolean {
-  return mode.width === undefined;
+/**
+ * The fixed output size of a mode, or undefined when the user picks it.
+ * The one place that knows how CropMode encodes "fixed vs free".
+ */
+export function presetSizeOf(mode: CropMode): Size | undefined {
+  return mode.width !== undefined && mode.height !== undefined
+    ? { width: mode.width, height: mode.height }
+    : undefined;
+}
+
+/** The mode's aspect lock, derived from the fixed size when not stated. */
+export function aspectOf(mode: CropMode): null | 'source' | number {
+  if (mode.aspect !== undefined) return mode.aspect;
+  const size = presetSizeOf(mode);
+  return size ? size.width / size.height : null;
 }
