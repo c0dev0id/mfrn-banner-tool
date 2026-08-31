@@ -139,6 +139,10 @@ body {
 .cropper-stage {
   position: relative;
   height: min(62vh, 560px);
+  /* Nothing here is selectable text, and an accidental selection is what lets
+     the browser hijack a later drag as a native drag-and-drop. */
+  user-select: none;
+  -webkit-user-select: none;
   background: #05070a
     repeating-conic-gradient(#0d1218 0% 25%, #0a0e13 0% 50%) 0 0 / 22px 22px;
   touch-action: none;
@@ -152,6 +156,11 @@ body {
 .crop-frame {
   position: absolute;
   pointer-events: none;
+}
+
+.cropper-stage canvas,
+.crop-handle {
+  -webkit-user-drag: none;
 }
 
 .crop-handle {

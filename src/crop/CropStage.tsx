@@ -161,7 +161,24 @@ export default function CropStage(props: Props) {
   };
 
   function onPointerDown(e: PointerEvent) {
-    container.setPointerCapture(e.pointerId);
+    // Only the primary button drags; a right- or middle-button press must not
+    // capture the pointer and strand the gesture.
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    // Suppress the browser's own mousedown behaviour. Without this each drag
+    // starts a text selection, and a later press inside that selection makes
+    // the browser drag the selection itself — the "ghost" that hijacks the
+    // second and third drag.
+    e.preventDefault();
+    // preventDefault also suppresses focus, which the arrow-key nudging needs.
+    container.focus({ preventScroll: true });
+
+    try {
+      container.setPointerCapture(e.pointerId);
+    } catch {
+      // Capture is a nicety; the gesture still works through the container.
+    }
+
     const p = localPoint(e);
     pointers.set(e.pointerId, p);
 
@@ -225,6 +242,15 @@ export default function CropStage(props: Props) {
     if (container.hasPointerCapture(e.pointerId)) container.releasePointerCapture(e.pointerId);
   }
 
+  /**
+   * Capture can be lost without a pointerup — the browser starting a native
+   * drag, the tab losing focus, a touch being stolen. Treat it as the end of
+   * the gesture so a stale entry can't make the next press look like a pinch.
+   */
+  function onLostCapture(e: PointerEvent) {
+    onPointerUp(e);
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     const step = (e.shiftKey ? 10 : 1) / view().scale;
     const nudge: Record<string, [number, number]> = {
@@ -261,12 +287,20 @@ export default function CropStage(props: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onLostPointerCapture={onLostCapture}
+        onDragStart={(e) => e.preventDefault()}
         onKeyDown={onKeyDown}
       >
-        <canvas ref={canvas} style={{ width: '100%', height: '100%', display: 'block' }} />
+        <canvas
+          ref={canvas}
+          draggable={false}
+          style={{ width: '100%', height: '100%', display: 'block' }}
+        />
         <div class="crop-frame" style={frameStyle()}>
           <For each={HANDLES}>
-            {(h) => <div class={`crop-handle crop-handle-${h}`} data-handle={h} />}
+            {(h) => (
+              <div class={`crop-handle crop-handle-${h}`} data-handle={h} draggable={false} />
+            )}
           </For>
         </div>
       </div>
