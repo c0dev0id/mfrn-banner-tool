@@ -1,6 +1,6 @@
 import type { RGB } from '../image/averageColor';
 import type { Rect, Size } from '../crop/geometry';
-import { overlayById } from '../overlays';
+import { overlayById, releaseGlassScratch } from '../overlays';
 import { drawText, type TextSpec } from './text';
 
 export interface ComposeInput {
@@ -49,7 +49,12 @@ function baseLayer(input: ComposeInput): HTMLCanvasElement | null {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bitmap, crop.x, crop.y, crop.w, crop.h, 0, 0, out.width, out.height);
-  overlayById(overlayId).draw(ctx, out.width, out.height, { avgColor });
+  overlayById(overlayId).draw(ctx, out.width, out.height, {
+    avgColor,
+    bitmap,
+    crop,
+    source: { width: bitmap.width, height: bitmap.height },
+  });
 
   baseKey = key;
   baseBitmap = bitmap;
@@ -65,6 +70,7 @@ export function releaseBaseLayer(): void {
   baseCanvas = null;
   baseBitmap = null;
   baseKey = '';
+  releaseGlassScratch();
 }
 
 /**

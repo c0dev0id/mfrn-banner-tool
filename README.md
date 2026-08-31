@@ -33,7 +33,29 @@ aspect-locked width/height inputs for deliberate scaling.
 | Option | Effect |
 | --- | --- |
 | None | image as cropped |
-| Average Colour Gradient — top left | the image's own average colour, faded from the top-left corner (opaque) to the bottom-right (transparent) |
+| Average Colour Gradient — top left | the image's own average colour, faded from the top-left corner |
+| Liquid Glass — top left | progressive blur plus a saturation lift and a dark scrim, strongest at the top-left corner |
+
+Both overlays clear by 60% of the diagonal (`RAMP_LENGTH` in
+`src/config/overlay.ts`), leaving the right-hand side of the photo untouched.
+
+### How the progressive blur works
+
+Blurring one copy of the image and fading its opacity does **not** produce a
+blur gradient. Alpha-blending gives `(1-a)*sharp + a*blurred`, so the middle of
+the ramp is sharp detail at half contrast superimposed on blurred content at
+half contrast — edges survive as ghosts. It is a soft-focus glow, not frosted
+glass.
+
+Ghosting scales with the radius gap between the two layers being blended, and a
+single blurred layer blends radius 0 against the maximum. So `overlays/blur.ts`
+builds a pyramid instead — five geometric levels — and each point blends only
+the two levels bracketing it, one small radius step apart. Measured on a
+high-detail test image, the single-layer version leaves 1.49x more residual
+detail mid-ramp than the pyramid, while both agree at the endpoints.
+
+Setting `BLUR_LEVELS = 1` collapses it back to the naive version, which is a
+quick way to see the difference.
 
 ## Development
 
