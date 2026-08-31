@@ -46,7 +46,7 @@ describe('ellipsise', () => {
 describe('computeMetrics', () => {
   it('scales type with the output height', () => {
     const strip = computeMetrics(1400, 250, 1);
-    const article = computeMetrics(1200, 686, 1);
+    const article = computeMetrics(1200, 515, 1);
     expect(article.titleSize).toBeGreaterThan(strip.titleSize);
   });
 

@@ -26,7 +26,7 @@ export const CROP_MODES: CropMode[] = [
   { id: 'free', label: 'Freeform — drag any edge', aspect: null },
   { id: 'avatar', label: '256 × 256 — Profile Picture', width: 256, height: 256 },
   { id: 'banner', label: '1400 × 250 — Profile Banner', width: 1400, height: 250 },
-  { id: 'article', label: '1200 × 686 — Article Banner', width: 1200, height: 686 },
+  { id: 'article', label: '1200 × 515 — Article Banner', width: 1200, height: 515 },
 ];
 
 export const DEFAULT_MODE_ID = 'banner';

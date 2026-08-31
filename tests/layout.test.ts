@@ -69,7 +69,7 @@ describe('layoutText', () => {
   });
 
   it('never places text outside the frame', () => {
-    for (const [w, h] of [[256, 256], [1400, 250], [1200, 686]] as const) {
+    for (const [w, h] of [[256, 256], [1400, 250], [1200, 515]] as const) {
       const lines = layoutText(w, h, spec('Tracks, Pässe, POIs', 'Information'), measurer);
       for (const line of lines) {
         expect(line.x).toBeGreaterThan(0);

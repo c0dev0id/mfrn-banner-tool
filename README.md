@@ -23,7 +23,7 @@ Everything runs client-side. No image is ever uploaded anywhere.
 | Freeform | native crop pixels, any shape |
 | Profile Picture | 256 × 256 |
 | Profile Banner | 1400 × 250 |
-| Article Banner | 1200 × 686 |
+| Article Banner | 1200 × 515 |
 
 Original and Freeform default to the crop's native pixel size and expose
 aspect-locked width/height inputs for deliberate scaling.
